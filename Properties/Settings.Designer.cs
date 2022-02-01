@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace SpringPractice1.Properties
+namespace SpringPractice2.Properties
 {
 
 

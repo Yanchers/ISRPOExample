@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Configuration;
+using System.Globalization;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,131 +13,85 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Xml.Linq;
 
-namespace SpringPractice1
+namespace SpringPractice2
 {
     /// <summary>
     /// Логика взаимодействия для MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
     {
-        private bool isBusy = false;
-        private UdpClient client;
-        private IPAddress groupAddress;
-        private int localPort, remotePort, ttl;
-
-        private IPEndPoint remoteEP;
-        private UnicodeEncoding encoding = new UnicodeEncoding();
-
-        private string name, msg;
-
         public MainWindow()
         {
             InitializeComponent();
-            Closing += MainWindow_Closing;
-            try
-            {
-                var config = ConfigurationManager.AppSettings;
-                groupAddress = IPAddress.Parse(config["groupAddress"]);
-                localPort = int.Parse(config["localPort"]);
-                remotePort = int.Parse(config["remotePort"]);
-                ttl = int.Parse(config["ttl"]);
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show("Application configuration file is incorrect.\n" + e.Message, "Error");
-            }
         }
 
-        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        private void RunBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (isBusy)
-                StopListener();
-        }
-
-        private void Listener()
-        {
-            isBusy = true;
-            try
+            if (startDate.SelectedDate == null || endDate.SelectedDate == null
+                || endDate.SelectedDate <= startDate.SelectedDate)
             {
-                while (isBusy)
+                MessageBox.Show("Даты некорректны!");
+                return;
+            }
+            string stDate = startDate.SelectedDate.Value.ToString("dd/MM/yyyy");
+            string enDate = endDate.SelectedDate.Value.ToString("dd/MM/yyyy");
+
+            var item = (ComboBoxItem)currencyBox.SelectedItem;
+            string currCode = item.Tag.ToString();
+            string currname = item.Content.ToString();
+            string query = string.Concat("http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=", stDate, "&date_req2=", enDate, "&VAL_NM_RQ=", currCode);
+
+            XDocument xDoc = XDocument.Load(query);
+            currencyChart.Clear();
+            dg.Items.Clear();
+            currencyChart.ChartName = currname;
+            foreach (var element in xDoc.Element("ValCurs").Elements("Record"))
+            {
+                string strDate = element.Attribute("Date").Value.ToString();
+                double val = double.Parse(element.Element("Value").Value.ToString());
+                DateTime dt = DateTime.ParseExact(strDate, "dd.MM.yyyy", CultureInfo.InvariantCulture);
+
+                currencyChart.AddItem(val, dt);
+                dg.Items.Add(new DataModel()
                 {
-                    IPEndPoint ep = null;
-                    byte[] buffer = client.Receive(ref ep);
-                    msg = encoding.GetString(buffer);
-
-                    Dispatcher.Invoke(() => DisplayReceivedMessage());
-                }
-            }
-            catch (Exception e)
-            {
-                if (!isBusy) return;
-                MessageBox.Show(e.Message, "Error");
+                    Value = val,
+                    Date = dt
+                });
             }
         }
 
-        private void DisplayReceivedMessage()
+        private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            tbChat.Text += $"{DateTime.Now.ToString("t")} - {msg}\n";
-        }
-        private void StopBtn_Click(object sender, RoutedEventArgs e)
-        {
-            StopListener();
-        }
-        private void StartBtn_Click(object sender, RoutedEventArgs e)
-        {
-            name = tbName.Text;
-            tbName.IsEnabled = false;
-
-            try
+            XDocument xDoc = XDocument
+                .Load("http://www.cbr.ru/scripts/XML_daily.asp?date_req=02/03/2020");
+            foreach (var element in xDoc.Element("ValCurs").Elements("Valute"))
             {
-                client = new UdpClient(localPort);
-                client.JoinMulticastGroup(groupAddress, ttl);
-                remoteEP = new IPEndPoint(groupAddress, remotePort);
+                var id = element.Attribute("ID");
+                var name = element.Element("Name");
 
-                Thread receiver = new Thread(new ThreadStart(Listener));
-                receiver.IsBackground = true;
-                receiver.Start();
-
-                byte[] data = encoding.GetBytes($"{name} has joined the chat!");
-                client.Send(data, data.Length, remoteEP);
-
-                startBtn.IsEnabled = false;
-                stopBtn.IsEnabled = true;
-                sendBtn.IsEnabled = true;
+                currencyBox.Items.Add(new ComboBoxItem
+                {
+                    Content = name.Value.ToString(),
+                    Tag = id.Value.ToString()
+                });
             }
-            catch (Exception ex)
+
+            DataGridTextColumn col1 = new DataGridTextColumn()
             {
-                MessageBox.Show(ex.Message, "Error");
-            }
-        }
-        private void StopListener()
-        {
-            byte[] data = encoding.GetBytes($"{name} has left the chat!");
-            client.Send(data, data.Length, remoteEP);
-
-            client.DropMulticastGroup(groupAddress);
-            client.Close();
-
-            isBusy = false;
-            
-            startBtn.IsEnabled = true;
-            stopBtn.IsEnabled = false;
-            sendBtn.IsEnabled = false;
-        }
-
-        private void SendBtn_Click(object sender, RoutedEventArgs e)
-        {
-            try
+                Header = "Value",
+                Binding = new Binding("Value"),
+                Width = 110
+            };
+            DataGridTextColumn col2 = new DataGridTextColumn()
             {
-                byte[] data = encoding.GetBytes($"{name}: '{tbMsg.Text}'");
-                client.Send(data, data.Length, remoteEP);
-                tbMsg.Clear();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message, "Error");
-            }
+                Header = "Date",
+                Binding = new Binding("Date"),
+                Width = 110
+            };
+            dg.Columns.Add(col1);
+            dg.Columns.Add(col2);
         }
     }
 }
